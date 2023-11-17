@@ -616,7 +616,7 @@ class LycorisNetwork(torch.nn.Module):
         self.apply(make_ckpt)
         pass
 
-    def prepare_optimizer_params(self, text_encoder_lr, unet_lr, learning_rate):
+    def prepare_optimizer_params(self, text_encoder_lr, unet_lr):
         def enumerate_params(loras):
             params = []
             for lora in loras:
@@ -676,7 +676,6 @@ class LycorisNetwork(torch.nn.Module):
             save_file(state_dict, file, metadata)
         else:
             torch.save(state_dict, file)
-
 
 class HyperDreamNetwork(torch.nn.Module):
     """
@@ -985,7 +984,7 @@ class HyperDreamNetwork(torch.nn.Module):
     def enable_gradient_checkpointing(self):
         self.gradient_ckpt = True
 
-    def prepare_optimizer_params(self, text_encoder_lr, unet_lr, learning_rate):
+    def prepare_optimizer_params(self, text_encoder_lr, unet_lr):
         self.requires_grad_(True)
         all_params = []
 
@@ -1267,7 +1266,7 @@ class IA3Network(torch.nn.Module):
         self.apply(make_ckpt)
         pass
 
-    def prepare_optimizer_params(self, text_encoder_lr, unet_lr, learning_rate):
+    def prepare_optimizer_params(self, text_encoder_lr, unet_lr):
         def enumerate_params(loras):
             params = []
             for lora in loras:
