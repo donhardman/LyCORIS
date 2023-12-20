@@ -575,7 +575,8 @@ class LycorisNetworkKohya(torch.nn.Module):
         if unexpected:
             state["unexpected keys"] = unexpected
         return state
-
+    def is_mergeable(self):
+        return False
     def apply_to(self, text_encoder, unet, apply_text_encoder=None, apply_unet=None):
         assert (
             apply_text_encoder is not None and apply_unet is not None
