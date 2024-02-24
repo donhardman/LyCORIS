@@ -223,21 +223,27 @@ class LokrModule(ModuleCustomSD):
 
         self.multiplier = multiplier
         self.org_module = [org_module]
+        self.org_forward = self.org_module[0].forward
         weight = make_kron(
             self.lokr_w1 if self.use_w1 else self.lokr_w1_a @ self.lokr_w1_b,
             (
                 self.lokr_w2
                 if self.use_w2
-                else make_weight_cp(self.lokr_t2, self.lokr_w2_a, self.lokr_w2_b)
-                if self.cp
-                else self.lokr_w2_a @ self.lokr_w2_b
+                else (
+                    make_weight_cp(self.lokr_t2, self.lokr_w2_a, self.lokr_w2_b)
+                    if self.cp
+                    else self.lokr_w2_a @ self.lokr_w2_b
+                )
             ),
             torch.tensor(self.multiplier * self.scale),
         )
         assert torch.sum(torch.isnan(weight)) == 0, "weight is nan"
-        self.register_load_state_dict_post_hook(self.load_weight_hook)
 
-    def load_weight_hook(self, *args, **kwargs):
+    def load_weight_hook(self, module: nn.Module, incompatible_keys):
+        missing_keys = incompatible_keys.missing_keys
+        for key in missing_keys:
+            if "scalar" in key:
+                del missing_keys[missing_keys.index(key)]
         self.scalar = nn.Parameter(torch.ones_like(self.scalar))
 
     # Same as locon.py
@@ -245,15 +251,24 @@ class LokrModule(ModuleCustomSD):
         self.org_forward = self.org_module[0].forward
         self.org_module[0].forward = self.forward
 
+    def restore(self):
+        self.org_module[0].forward = self.org_forward
+
+    def merge_to(self, multiplier=1.0):
+        weight = self.get_weight(self.org_module[0].weight)
+        self.org_module[0].weight.data.add_(weight * multiplier)
+
     def get_weight(self, orig_weight=None):
         weight = make_kron(
             self.lokr_w1 if self.use_w1 else self.lokr_w1_a @ self.lokr_w1_b,
             (
                 self.lokr_w2
                 if self.use_w2
-                else make_weight_cp(self.lokr_t2, self.lokr_w2_a, self.lokr_w2_b)
-                if self.cp
-                else self.lokr_w2_a @ self.lokr_w2_b
+                else (
+                    make_weight_cp(self.lokr_t2, self.lokr_w2_a, self.lokr_w2_b)
+                    if self.cp
+                    else self.lokr_w2_a @ self.lokr_w2_b
+                )
             ),
             torch.tensor(self.scale),
         )
@@ -317,9 +332,11 @@ class LokrModule(ModuleCustomSD):
                 return self.op(
                     x,
                     self.org_module[0].weight.data,
-                    None
-                    if self.org_module[0].bias is None
-                    else self.org_module[0].bias.data,
+                    (
+                        None
+                        if self.org_module[0].bias is None
+                        else self.org_module[0].bias.data
+                    ),
                 )
         weight = (
             self.org_module[0].weight.data.to(x.device, dtype=self.lokr_w1.dtype)

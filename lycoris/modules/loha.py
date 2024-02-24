@@ -99,6 +99,7 @@ class LohaModule(ModuleCustomSD):
         use_tucker=False,
         use_scalar=False,
         rank_dropout_scale=False,
+        weight_decompose=False,
         **kwargs,
     ):
         """if alpha == 0 or None, alpha is rank (no scaling)."""
@@ -158,6 +159,11 @@ class LohaModule(ModuleCustomSD):
             self.hada_w2_a = nn.Parameter(torch.empty(shape[0], lora_dim))
             self.hada_w2_b = nn.Parameter(torch.empty(lora_dim, shape[1]))
 
+        self.wd = weight_decompose
+        if self.wd:
+            org_weight = org_module.weight
+            self.dora_scale = nn.Parameter(torch.mean(org_weight, dim=0, keepdim=True))
+
         self.dropout = dropout
         if dropout:
             print("[WARN]LoHa/LoKr haven't implemented normal dropout yet.")
@@ -189,14 +195,25 @@ class LohaModule(ModuleCustomSD):
 
         self.multiplier = multiplier
         self.org_module = [org_module]  # remove in applying
+        self.org_forward = self.org_module[0].forward
         self.grad_ckpt = False
-        self.register_load_state_dict_post_hook(self.load_weight_hook)
 
-    def load_weight_hook(self, *args, **kwargs):
+    def load_weight_hook(self, module: nn.Module, incompatible_keys):
+        missing_keys = incompatible_keys.missing_keys
+        for key in missing_keys:
+            if "scalar" in key:
+                del missing_keys[missing_keys.index(key)]
         self.scalar = nn.Parameter(torch.ones_like(self.scalar))
 
     def apply_to(self):
         self.org_module[0].forward = self.forward
+
+    def restore(self):
+        self.org_module[0].forward = self.org_forward
+
+    def merge_to(self, multiplier=1.0):
+        weight = self.get_weight(self.org_module[0].weight)
+        self.org_module[0].weight.data.add_(weight * multiplier)
 
     def get_weight(self, orig_weight=None):
         if self.tucker:
@@ -259,9 +276,11 @@ class LohaModule(ModuleCustomSD):
                 return self.op(
                     x,
                     self.org_module[0].weight.data,
-                    None
-                    if self.org_module[0].bias is None
-                    else self.org_module[0].bias.data,
+                    (
+                        None
+                        if self.org_module[0].bias is None
+                        else self.org_module[0].bias.data
+                    ),
                 )
         weight = (
             self.org_module[0].weight.data.to(x.device, dtype=self.hada_w1_a.dtype)
